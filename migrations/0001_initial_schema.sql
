@@ -1,0 +1,107 @@
+
+-- WaveX initial database schema
+-- PostgreSQL / Neon
+-- Stores user profiles, track metadata and listening activity.
+
+CREATE TABLE IF NOT EXISTS profiles (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  device_id TEXT NOT NULL UNIQUE,
+  display_name VARCHAR(40) NOT NULL DEFAULT 'Listener',
+  theme VARCHAR(40) NOT NULL DEFAULT 'system',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  CONSTRAINT profiles_device_id_not_blank
+    CHECK (length(btrim(device_id)) > 0),
+  CONSTRAINT profiles_display_name_not_blank
+    CHECK (length(btrim(display_name)) > 0)
+);
+
+CREATE TABLE IF NOT EXISTS tracks (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  provider VARCHAR(40) NOT NULL,
+  provider_track_id TEXT NOT NULL,
+  title TEXT NOT NULL,
+  artist_name TEXT,
+  album_name TEXT,
+  artwork_url TEXT,
+  duration_seconds INTEGER,
+  language VARCHAR(40),
+  is_explicit BOOLEAN NOT NULL DEFAULT FALSE,
+  metadata JSONB NOT NULL DEFAULT '{}'::JSONB,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  CONSTRAINT tracks_provider_not_blank
+    CHECK (length(btrim(provider)) > 0),
+  CONSTRAINT tracks_provider_track_id_not_blank
+    CHECK (length(btrim(provider_track_id)) > 0),
+  CONSTRAINT tracks_title_not_blank
+    CHECK (length(btrim(title)) > 0),
+  CONSTRAINT tracks_duration_nonnegative
+    CHECK (duration_seconds IS NULL OR duration_seconds >= 0),
+  CONSTRAINT tracks_provider_identity_unique
+    UNIQUE (provider, provider_track_id)
+);
+
+CREATE TABLE IF NOT EXISTS liked_tracks (
+  profile_id UUID NOT NULL
+    REFERENCES profiles(id) ON DELETE CASCADE,
+  track_id UUID NOT NULL
+    REFERENCES tracks(id) ON DELETE CASCADE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (profile_id, track_id)
+);
+
+CREATE TABLE IF NOT EXISTS followed_artists (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  profile_id UUID NOT NULL
+    REFERENCES profiles(id) ON DELETE CASCADE,
+  provider VARCHAR(40) NOT NULL,
+  provider_artist_id TEXT NOT NULL,
+  artist_name TEXT NOT NULL,
+  artwork_url TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  CONSTRAINT followed_artists_identity_unique
+    UNIQUE (profile_id, provider, provider_artist_id),
+  CONSTRAINT followed_artists_provider_not_blank
+    CHECK (length(btrim(provider)) > 0),
+  CONSTRAINT followed_artists_id_not_blank
+    CHECK (length(btrim(provider_artist_id)) > 0),
+  CONSTRAINT followed_artists_name_not_blank
+    CHECK (length(btrim(artist_name)) > 0)
+);
+
+CREATE TABLE IF NOT EXISTS listening_events (
+  id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  profile_id UUID NOT NULL
+    REFERENCES profiles(id) ON DELETE CASCADE,
+  track_id UUID NOT NULL
+    REFERENCES tracks(id) ON DELETE CASCADE,
+  event_type VARCHAR(24) NOT NULL,
+  played_ms INTEGER NOT NULL DEFAULT 0,
+  completion_percent NUMERIC(5,2),
+  source VARCHAR(32) NOT NULL DEFAULT 'unknown',
+  occurred_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  CONSTRAINT listening_events_type_valid
+    CHECK (event_type IN (
+      'play_started', 'play_completed', 'skip', 'replay'
+    )),
+  CONSTRAINT listening_events_played_nonnegative
+    CHECK (played_ms >= 0),
+  CONSTRAINT listening_events_completion_valid
+    CHECK (
+      completion_percent IS NULL OR
+      (completion_percent >= 0 AND completion_percent <= 100)
+    )
+);
+
+CREATE INDEX IF NOT EXISTS listening_events_profile_time_idx
+  ON listening_events (profile_id, occurred_at DESC);
+
+CREATE INDEX IF NOT EXISTS listening_events_track_time_idx
+  ON listening_events (track_id, occurred_at DESC);
+
+CREATE INDEX IF NOT EXISTS followed_artists_profile_idx
+  ON followed_artists (profile_id, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS tracks_title_idx
+  ON tracks (lower(title));
