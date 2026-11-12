@@ -47,6 +47,7 @@
     "commit-msg": "bun run commitlint --edit $1"
   },
   "dependencies": {
+    "@neondatabase/serverless": "^1.2.0",
     "@hono/node-server": "^1.14.0",
     "@hono/zod-openapi": "^0.19.2",
     "@hono/zod-validator": "^0.4.3",
