@@ -1,0 +1,228 @@
+import { createRoute, OpenAPIHono, z } from '@hono/zod-openapi'
+import { getDatabase } from '#common/database/client'
+import type { Routes } from '#common/types'
+
+const ProfileBody = z.object({
+  deviceId: z.string().uuid(),
+  displayName: z.string().trim().min(1).max(40).optional(),
+  theme: z.string().trim().min(1).max(40).optional()
+})
+
+const UpdateProfileBody = z.object({
+  displayName: z.string().trim().min(1).max(40).optional(),
+  theme: z.string().trim().min(1).max(40).optional()
+}).refine(
+  (data) => data.displayName !== undefined || data.theme !== undefined,
+  { message: 'At least one profile field must be provided' }
+)
+
+export class ProfileController implements Routes {
+  public controller: OpenAPIHono
+
+  constructor() {
+    this.controller = new OpenAPIHono()
+
+    // Profile data must never be cached.
+    this.controller.use('*', async (ctx, next) => {
+      await next()
+      ctx.header('Cache-Control', 'no-store')
+    })
+  }
+
+  public initRoutes() {
+    // Create a profile, or return the existing profile.
+    this.controller.openapi(
+      createRoute({
+        method: 'post',
+        path: '/profiles',
+        tags: ['Profiles'],
+        summary: 'Create or retrieve an anonymous profile',
+        request: {
+          body: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: ProfileBody
+              }
+            }
+          }
+        },
+        responses: {
+          200: { description: 'Profile created or retrieved successfully' },
+          500: { description: 'Unable to access the profile database' }
+        }
+      }),
+      async (ctx) => {
+        const body = ctx.req.valid('json')
+
+        try {
+          const sql = getDatabase(ctx)
+
+          const rows = await sql`
+            INSERT INTO profiles (
+              device_id,
+              display_name,
+              theme
+            )
+            VALUES (
+              ${body.deviceId},
+              ${body.displayName ?? 'Listener'},
+              ${body.theme ?? 'system'}
+            )
+            ON CONFLICT (device_id)
+            DO UPDATE SET device_id = EXCLUDED.device_id
+            RETURNING
+              id,
+              device_id,
+              display_name,
+              theme,
+              created_at,
+              updated_at
+          `
+
+          return ctx.json({
+            success: true,
+            data: rows[0]
+          }, 200)
+        } catch {
+          return ctx.json({
+            success: false,
+            message: 'Unable to create or retrieve profile'
+          }, 500)
+        }
+      }
+    )
+
+    // Retrieve a profile by its installation UUID.
+    this.controller.openapi(
+      createRoute({
+        method: 'get',
+        path: '/profiles/{deviceId}',
+        tags: ['Profiles'],
+        summary: 'Retrieve an anonymous profile',
+        request: {
+          params: z.object({
+            deviceId: z.string().uuid()
+          })
+        },
+        responses: {
+          200: { description: 'Profile retrieved successfully' },
+          404: { description: 'Profile not found' },
+          500: { description: 'Unable to access the profile database' }
+        }
+      }),
+      async (ctx) => {
+        const { deviceId } = ctx.req.valid('param')
+
+        try {
+          const sql = getDatabase(ctx)
+
+          const rows = await sql`
+            SELECT
+              id,
+              device_id,
+              display_name,
+              theme,
+              created_at,
+              updated_at
+            FROM profiles
+            WHERE device_id = ${deviceId}
+            LIMIT 1
+          `
+
+          if (rows.length === 0) {
+            return ctx.json({
+              success: false,
+              message: 'Profile not found'
+            }, 404)
+          }
+
+          return ctx.json({
+            success: true,
+            data: rows[0]
+          }, 200)
+        } catch {
+          return ctx.json({
+            success: false,
+            message: 'Unable to retrieve profile'
+          }, 500)
+        }
+      }
+    )
+
+    // Update a profile's display name and/or theme.
+    this.controller.openapi(
+      createRoute({
+        method: 'patch',
+        path: '/profiles/{deviceId}',
+        tags: ['Profiles'],
+        summary: 'Update an anonymous profile',
+        request: {
+          params: z.object({
+            deviceId: z.string().uuid()
+          }),
+          body: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: UpdateProfileBody
+              }
+            }
+          }
+        },
+        responses: {
+          200: { description: 'Profile updated successfully' },
+          404: { description: 'Profile not found' },
+          500: { description: 'Unable to update the profile' }
+        }
+      }),
+      async (ctx) => {
+        const { deviceId } = ctx.req.valid('param')
+        const body = ctx.req.valid('json')
+
+        try {
+          const sql = getDatabase(ctx)
+
+          const rows = await sql`
+            UPDATE profiles
+            SET
+              display_name = COALESCE(
+                ${body.displayName ?? null},
+                display_name
+              ),
+              theme = COALESCE(
+                ${body.theme ?? null},
+                theme
+              ),
+              updated_at = NOW()
+            WHERE device_id = ${deviceId}
+            RETURNING
+              id,
+              device_id,
+              display_name,
+              theme,
+              created_at,
+              updated_at
+          `
+
+          if (rows.length === 0) {
+            return ctx.json({
+              success: false,
+              message: 'Profile not found'
+            }, 404)
+          }
+
+          return ctx.json({
+            success: true,
+            data: rows[0]
+          }, 200)
+        } catch {
+          return ctx.json({
+            success: false,
+            message: 'Unable to update profile'
+          }, 500)
+        }
+      }
+    )
+  }
+}
