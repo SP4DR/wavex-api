@@ -22,7 +22,6 @@ export class ProfileController implements Routes {
   constructor() {
     this.controller = new OpenAPIHono()
 
-    // Profile data must never be cached.
     this.controller.use('*', async (ctx, next) => {
       await next()
       ctx.header('Cache-Control', 'no-store')
@@ -30,7 +29,6 @@ export class ProfileController implements Routes {
   }
 
   public initRoutes() {
-    // Create a profile, or return the existing profile.
     this.controller.openapi(
       createRoute({
         method: 'post',
@@ -93,7 +91,6 @@ export class ProfileController implements Routes {
       }
     )
 
-    // Retrieve a profile by its installation UUID.
     this.controller.openapi(
       createRoute({
         method: 'get',
@@ -150,7 +147,6 @@ export class ProfileController implements Routes {
       }
     )
 
-    // Update a profile's display name and/or theme.
     this.controller.openapi(
       createRoute({
         method: 'patch',
