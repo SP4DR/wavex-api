@@ -1,3 +1,4 @@
+
 import {
   AlbumController,
   ArtistController,
@@ -6,7 +7,8 @@ import {
   SongController,
   ProfileController,
   LikedTrackController,
-  FollowedArtistController
+  FollowedArtistController,
+  ListeningEventController
 } from '#modules/index'
 import { PlaylistController } from '#modules/playlists/controllers'
 import { App } from './app'
@@ -20,7 +22,8 @@ const app = new App([
   new HomeController(),
   new ProfileController(),
   new LikedTrackController(),
-  new FollowedArtistController()
+  new FollowedArtistController(),
+  new ListeningEventController()
 ]).getApp()
 
 export default app
